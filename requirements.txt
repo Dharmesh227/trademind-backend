@@ -15,3 +15,5 @@ loguru>=0.7.0,<1.0.0
 aiofiles>=23.2.0,<24.0.0
 alembic>=1.13.0,<2.0.0
 yfinance>=0.2.40
+PyJWT>=2.8.0,<3.0.0
+cryptography>=42.0.0,<44.0.0

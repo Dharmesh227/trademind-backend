@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Generic, List, Optional, TypeVar
+from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -458,3 +458,31 @@ class RecommendationGenerateRequest(BaseModel):
 class TradeCloseRequest(BaseModel):
     exit_price: Optional[float] = None
     exit_reason: str = "manual"
+
+
+# ── Pattern Scanner ─────────────────────────────────────────
+class PatternScanResultResponse(BaseModel):
+    symbol: str
+    pattern_name: str
+    pattern_type: str
+    confidence: float
+    entry_price: float
+    stop_loss: float
+    target_price: float
+    timeframe: str
+    supporting_evidence: List[str] = []
+    detected_at: datetime
+
+
+class PatternScanResponse(BaseModel):
+    patterns: List[PatternScanResultResponse]
+    total: int
+    scanned_symbols: int
+    scan_time_seconds: Optional[float] = None
+
+
+class PatternSummaryResponse(BaseModel):
+    total_patterns: int = 0
+    by_type: Dict[str, int] = {}
+    by_pattern: Dict[str, int] = {}
+    avg_confidence: float = 0.0

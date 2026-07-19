@@ -139,7 +139,7 @@ def create_app() -> FastAPI:
             )
 
     # ── Import and Include Routers ─────────────────────────
-    from trademind.api.routers import market, scores, recommendations, trades, analytics, learning, backtest, sector_analysis
+    from trademind.api.routers import market, scores, recommendations, trades, analytics, learning, backtest, sector_analysis, patterns, heatmap, correlation, notifications, portfolio, sentiment
 
     api_prefix = "/api/v1"
     app.include_router(market.router, prefix=api_prefix)
@@ -151,6 +151,12 @@ def create_app() -> FastAPI:
     app.include_router(learning.knowledge_router, prefix=api_prefix)
     app.include_router(backtest.router, prefix=api_prefix)
     app.include_router(sector_analysis.router, prefix=api_prefix)
+    app.include_router(patterns.router, prefix=api_prefix)
+    app.include_router(heatmap.router, prefix=api_prefix)
+    app.include_router(correlation.router, prefix=api_prefix)
+    app.include_router(notifications.router, prefix=api_prefix)
+    app.include_router(portfolio.router, prefix=api_prefix)
+    app.include_router(sentiment.router, prefix=api_prefix)
 
     # ── Health Check + NSE Status ──────────────────────────
     @app.get("/health", tags=["System"])

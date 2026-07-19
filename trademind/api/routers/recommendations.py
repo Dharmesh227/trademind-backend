@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from trademind.api.schemas import (
     RecommendationGenerateRequest,
@@ -51,8 +52,20 @@ async def _auto_generate_from_bhavcopy() -> None:
     - Strong directional move (>0.5% daily change)
     - High OI (institutional interest)
     - High volume (conviction)
+
+    SL / target thresholds respect the current trading mode from settings.
     """
     from trademind.api.routers.scores import _score_from_bhavcopy
+
+    mode = cfg.trading_mode
+    if mode == "intraday":
+        sl_mult = cfg.intraday_sl_percent / 100.0
+        tgt_mult = cfg.intraday_target_percent / 100.0
+        holding_label = "intraday"
+    else:
+        sl_mult = cfg.swing_sl_percent / 100.0
+        tgt_mult = cfg.swing_target_percent / 100.0
+        holding_label = "swing"
 
     bhavcopy = _get_bhavcopy()
     try:
@@ -73,64 +86,55 @@ async def _auto_generate_from_bhavcopy() -> None:
             chg = stock.change_pct
             entry = stock.close
 
-            # Get options PCR for this stock
-            pcr = data.get_option_pcr(sym) if hasattr(data, "get_option_pcr") else None
-
             # Generate signal based on change %, OI, volume, and PCR
             has_oi = stock.oi > 0
             has_volume = stock.volume > 100000
 
+            action = None
+            conf = 0.0
+
             if has_oi:
                 if chg > 2.0 and stock.oi > 20000:
                     action = "STRONG_BUY"
-                    sl = entry * 0.975
-                    target = entry * 1.04
                     conf = min(0.75 + chg * 0.02, 0.92)
                 elif chg > 0.5 and stock.oi > 5000:
                     action = "BUY"
-                    sl = entry * 0.98
-                    target = entry * 1.025
                     conf = min(0.6 + chg * 0.04, 0.85)
                 elif chg < -2.0 and stock.oi > 20000:
                     action = "STRONG_SELL"
-                    sl = entry * 1.025
-                    target = entry * 0.96
                     conf = min(0.75 + abs(chg) * 0.02, 0.92)
                 elif chg < -0.5 and stock.oi > 5000:
                     action = "SELL"
-                    sl = entry * 1.02
-                    target = entry * 0.975
                     conf = min(0.6 + abs(chg) * 0.04, 0.85)
-                else:
-                    continue
             else:
                 if chg > 2.5 and has_volume:
                     action = "STRONG_BUY"
-                    sl = entry * 0.975
-                    target = entry * 1.04
                     conf = min(0.70 + chg * 0.015, 0.88)
                 elif chg > 0.8 and has_volume:
                     action = "BUY"
-                    sl = entry * 0.98
-                    target = entry * 1.025
                     conf = min(0.55 + chg * 0.03, 0.80)
                 elif chg < -2.5 and has_volume:
                     action = "STRONG_SELL"
-                    sl = entry * 1.025
-                    target = entry * 0.96
                     conf = min(0.70 + abs(chg) * 0.015, 0.88)
                 elif chg < -0.8 and has_volume:
                     action = "SELL"
-                    sl = entry * 1.02
-                    target = entry * 0.975
                     conf = min(0.55 + abs(chg) * 0.03, 0.80)
-                else:
-                    continue
+
+            if action is None:
+                continue
+
+            # Compute SL / target using mode-specific thresholds
+            if action in ("BUY", "STRONG_BUY"):
+                sl = entry * (1.0 - sl_mult)
+                target = entry * (1.0 + tgt_mult)
+            else:
+                sl = entry * (1.0 + sl_mult)
+                target = entry * (1.0 - tgt_mult)
 
             risk_reward = round((target - entry) / (entry - sl), 1) if entry > sl else 1.0
 
             evidence = list(score_resp.evidence)
-            evidence.append(f"Score: {score_resp.score}/100 | Change: {chg:+.2f}%")
+            evidence.append(f"Score: {score_resp.score}/100 | Change: {chg:+.2f}% | Mode: {mode}")
 
             rec_id = f"bhavcopy-{sym}-{datetime.now().strftime('%Y%m%d')}"
             _active_recommendations[sym] = TradeRecommendationResponse(
@@ -143,31 +147,106 @@ async def _auto_generate_from_bhavcopy() -> None:
                 target=round(target, 2),
                 confidence=round(conf, 2),
                 expected_move_percent=round(chg, 2),
-                holding_period="intraday",
+                holding_period=holding_label,
                 risk_reward_ratio=risk_reward,
                 evidence=evidence,
                 is_active=True,
             )
 
         logger.info(
-            "Auto-generated %d recommendations from Bhavcopy (%d stocks, %d options)",
+            "Auto-generated %d recommendations from Bhavcopy (%d stocks, %d options, mode=%s)",
             len(_active_recommendations),
             data.fo_count,
             data.option_count,
+            mode,
         )
     except Exception as exc:
         logger.error("Bhavcopy recommendation generation failed: %s", exc)
 
 
 @router.get("", response_model=list[TradeRecommendationResponse])
-async def get_active_recommendations() -> list[TradeRecommendationResponse]:
-    """Get all active recommendations. Auto-generates from Bhavcopy if empty."""
+async def get_active_recommendations(
+    mode: Optional[str] = Query(default=None, description="Filter by trading mode: intraday or swing"),
+) -> list[TradeRecommendationResponse]:
+    """Get all active recommendations. Auto-generates from Bhavcopy if empty.
+
+    Pass ?mode=intraday or ?mode=swing to filter by holding_period.
+    """
     if not _active_recommendations:
         try:
             await asyncio.wait_for(_auto_generate_from_bhavcopy(), timeout=15.0)
         except (asyncio.TimeoutError, Exception):
             pass
-    return list(_active_recommendations.values())
+
+    recs = list(_active_recommendations.values())
+    if mode:
+        mode_lower = mode.lower().strip()
+        recs = [r for r in recs if r.holding_period == mode_lower]
+
+    return recs
+
+
+# ── Trading Mode Endpoints ─────────────────────────────────
+class TradingModeResponse(BaseModel):
+    mode: str
+    sl_percent: float
+    target_percent: float
+    max_holding: str
+
+
+class TradingModeRequest(BaseModel):
+    mode: str
+
+
+@router.get("/mode", response_model=TradingModeResponse)
+async def get_trading_mode() -> TradingModeResponse:
+    """Get the current trading mode and its associated thresholds."""
+    mode = cfg.trading_mode
+    if mode == "intraday":
+        return TradingModeResponse(
+            mode=mode,
+            sl_percent=cfg.intraday_sl_percent,
+            target_percent=cfg.intraday_target_percent,
+            max_holding=f"{cfg.intraday_max_holding_hours} hours",
+        )
+    return TradingModeResponse(
+        mode=mode,
+        sl_percent=cfg.swing_sl_percent,
+        target_percent=cfg.swing_target_percent,
+        max_holding=f"{cfg.swing_max_holding_days} days",
+    )
+
+
+@router.post("/mode", response_model=TradingModeResponse)
+async def set_trading_mode(request: TradingModeRequest) -> TradingModeResponse:
+    """Switch between intraday and swing trading mode."""
+    new_mode = request.mode.lower().strip()
+    if new_mode not in ("intraday", "swing"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode '{request.mode}'. Must be 'intraday' or 'swing'.",
+        )
+
+    cfg.trading_mode = new_mode
+    logger.info("Trading mode switched to %s", new_mode)
+
+    # Clear existing recommendations so they regenerate with new thresholds
+    global _active_recommendations  # noqa: PLW0603
+    _active_recommendations = {}
+
+    if new_mode == "intraday":
+        return TradingModeResponse(
+            mode=new_mode,
+            sl_percent=cfg.intraday_sl_percent,
+            target_percent=cfg.intraday_target_percent,
+            max_holding=f"{cfg.intraday_max_holding_hours} hours",
+        )
+    return TradingModeResponse(
+        mode=new_mode,
+        sl_percent=cfg.swing_sl_percent,
+        target_percent=cfg.swing_target_percent,
+        max_holding=f"{cfg.swing_max_holding_days} days",
+    )
 
 
 @router.get("/{symbol}", response_model=TradeRecommendationResponse)

@@ -266,6 +266,20 @@ async def close_paper_trade(
     except Exception as e:
         logger.warning("Learning trigger after manual close failed: %s", e)
 
+    try:
+        from trademind.engines.notifications.service import notification_service
+        pnl_val = _decimal_to_float(closed.pnl)
+        pnl_pct = closed.pnl_percent
+        notif_task = notification_service.send_to_all(
+            title="Trade Closed",
+            body=f"{closed.symbol} — P&L: \u20b9{pnl_val} ({pnl_pct}%)",
+            data={"type": "trade_closed", "symbol": closed.symbol, "pnl": str(pnl_val)},
+        )
+        import asyncio
+        asyncio.create_task(notif_task)
+    except Exception as e:
+        logger.warning("Push notification after trade close failed: %s", e)
+
     return TradeCloseResponse(
         status="closed",
         trade=_trade_to_response(closed),

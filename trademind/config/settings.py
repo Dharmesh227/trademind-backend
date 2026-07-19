@@ -80,6 +80,19 @@ class Settings(BaseSettings):
     max_holding_days: int = 10
     min_holding_hours: int = 1
 
+    # Trading Mode
+    trading_mode: str = "swing"  # "intraday" or "swing"
+
+    # Intraday mode thresholds
+    intraday_sl_percent: float = 0.5
+    intraday_target_percent: float = 1.0
+    intraday_max_holding_hours: int = 6
+
+    # Swing mode thresholds
+    swing_sl_percent: float = 2.0
+    swing_target_percent: float = 5.0
+    swing_max_holding_days: int = 15
+
     # Paper trading defaults
     default_capital: float = 100000.0
     max_position_size_percent: float = 10.0
