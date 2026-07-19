@@ -76,29 +76,56 @@ async def _auto_generate_from_bhavcopy() -> None:
             # Get options PCR for this stock
             pcr = data.get_option_pcr(sym) if hasattr(data, "get_option_pcr") else None
 
-            # Generate signal based on change %, OI, and PCR
-            if chg > 2.0 and stock.oi > 20000:
-                action = "STRONG_BUY"
-                sl = entry * 0.975
-                target = entry * 1.04
-                conf = min(0.75 + chg * 0.02, 0.92)
-            elif chg > 0.5 and stock.oi > 5000:
-                action = "BUY"
-                sl = entry * 0.98
-                target = entry * 1.025
-                conf = min(0.6 + chg * 0.04, 0.85)
-            elif chg < -2.0 and stock.oi > 20000:
-                action = "STRONG_SELL"
-                sl = entry * 1.025
-                target = entry * 0.96
-                conf = min(0.75 + abs(chg) * 0.02, 0.92)
-            elif chg < -0.5 and stock.oi > 5000:
-                action = "SELL"
-                sl = entry * 1.02
-                target = entry * 0.975
-                conf = min(0.6 + abs(chg) * 0.04, 0.85)
+            # Generate signal based on change %, OI, volume, and PCR
+            has_oi = stock.oi > 0
+            has_volume = stock.volume > 100000
+
+            if has_oi:
+                if chg > 2.0 and stock.oi > 20000:
+                    action = "STRONG_BUY"
+                    sl = entry * 0.975
+                    target = entry * 1.04
+                    conf = min(0.75 + chg * 0.02, 0.92)
+                elif chg > 0.5 and stock.oi > 5000:
+                    action = "BUY"
+                    sl = entry * 0.98
+                    target = entry * 1.025
+                    conf = min(0.6 + chg * 0.04, 0.85)
+                elif chg < -2.0 and stock.oi > 20000:
+                    action = "STRONG_SELL"
+                    sl = entry * 1.025
+                    target = entry * 0.96
+                    conf = min(0.75 + abs(chg) * 0.02, 0.92)
+                elif chg < -0.5 and stock.oi > 5000:
+                    action = "SELL"
+                    sl = entry * 1.02
+                    target = entry * 0.975
+                    conf = min(0.6 + abs(chg) * 0.04, 0.85)
+                else:
+                    continue
             else:
-                continue  # Skip HOLD — not actionable
+                if chg > 2.5 and has_volume:
+                    action = "STRONG_BUY"
+                    sl = entry * 0.975
+                    target = entry * 1.04
+                    conf = min(0.70 + chg * 0.015, 0.88)
+                elif chg > 0.8 and has_volume:
+                    action = "BUY"
+                    sl = entry * 0.98
+                    target = entry * 1.025
+                    conf = min(0.55 + chg * 0.03, 0.80)
+                elif chg < -2.5 and has_volume:
+                    action = "STRONG_SELL"
+                    sl = entry * 1.025
+                    target = entry * 0.96
+                    conf = min(0.70 + abs(chg) * 0.015, 0.88)
+                elif chg < -0.8 and has_volume:
+                    action = "SELL"
+                    sl = entry * 1.02
+                    target = entry * 0.975
+                    conf = min(0.55 + abs(chg) * 0.03, 0.80)
+                else:
+                    continue
 
             risk_reward = round((target - entry) / (entry - sl), 1) if entry > sl else 1.0
 
