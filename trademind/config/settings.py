@@ -96,7 +96,7 @@ class Settings(BaseSettings):
     # Paper trading defaults
     default_capital: float = 100000.0
     max_position_size_percent: float = 10.0
-    max_open_positions: int = 10
+    max_open_positions: int = 5
 
     # Learning
     min_trades_for_learning: int = 30
